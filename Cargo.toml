@@ -14,7 +14,10 @@ crossterm = "0.28"
 tokio = { version = "1", features = ["full"] }
 
 # SSH for remote Jetson access
-ssh2 = "0.9"
+ssh2 = { version = "0.9", features = ["vendored-openssl"] }
+
+# Password prompt
+rpassword = "5"
 
 # Error handling
 anyhow = "1"

@@ -83,6 +83,25 @@ impl SshReader {
             }
         }
 
+        // 4. Try password authentication (interactive prompt)
+        if !authenticated {
+            eprintln!("SSH key/agent authentication failed. Trying password authentication.");
+            let prompt = format!("{}@{}'s password: ", self.user, self.host);
+            match rpassword::read_password_from_tty(Some(&prompt)) {
+                Ok(password) => {
+                    if sess.userauth_password(&self.user, &password).is_ok() {
+                        authenticated = sess.authenticated();
+                        if authenticated {
+                            tracing::info!("SSH authenticated with password");
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to read password: {e}");
+                }
+            }
+        }
+
         if !authenticated {
             anyhow::bail!(
                 "SSH authentication failed for {}@{}. Try: jtop-rs -H {} -u {} -k ~/.ssh/id_rsa",
