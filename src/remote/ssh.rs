@@ -46,14 +46,48 @@ impl SshReader {
         sess.set_tcp_stream(tcp);
         sess.handshake()?;
 
+        // Try authentication methods in order
+        let mut authenticated = false;
+
+        // 1. Explicit key path
         if let Some(ref key) = self.key_path {
-            sess.userauth_pubkey_file(&self.user, None, Path::new(key), None)?;
-        } else {
-            sess.userauth_agent(&self.user)?;
+            if sess.userauth_pubkey_file(&self.user, None, Path::new(key), None).is_ok() {
+                authenticated = sess.authenticated();
+            }
         }
 
-        if !sess.authenticated() {
-            anyhow::bail!("SSH authentication failed for {}@{}", self.user, self.host);
+        // 2. Try common SSH key paths
+        if !authenticated {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
+            let key_candidates = [
+                format!("{home}/.ssh/id_ed25519"),
+                format!("{home}/.ssh/id_rsa"),
+                format!("{home}/.ssh/id_ecdsa"),
+            ];
+            for key_path in &key_candidates {
+                let p = Path::new(key_path);
+                if p.exists() {
+                    if sess.userauth_pubkey_file(&self.user, None, p, None).is_ok() && sess.authenticated() {
+                        authenticated = true;
+                        tracing::info!("SSH authenticated with {}", key_path);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 3. Try SSH agent (if available)
+        if !authenticated {
+            if sess.userauth_agent(&self.user).is_ok() {
+                authenticated = sess.authenticated();
+            }
+        }
+
+        if !authenticated {
+            anyhow::bail!(
+                "SSH authentication failed for {}@{}. Try: jtop-rs -H {} -u {} -k ~/.ssh/id_rsa",
+                self.user, self.host, self.host, self.user
+            );
         }
 
         self.session = Some(sess);
